@@ -148,9 +148,18 @@ def check_gvpl_account(barcode, pin):
         driver.get('https://gvpl.ca/client/en_US/default')
         time.sleep(3) # Cloudflare verification redirect
         
-        # 1. Open login modal
-        login_trigger = driver.find_element(By.XPATH, "//a[contains(@class, 'loginLink') or contains(text(), 'Log In')]")
-        driver.execute_script('arguments[0].click();', login_trigger)
+        # 1. Open login modal (retry up to 15s for Cloudflare / DOM render)
+        login_trigger = None
+        for _ in range(15):
+            try:
+                login_trigger = driver.find_element(By.XPATH, "//a[contains(@class, 'loginLink') or contains(text(), 'Log In')]")
+                if login_trigger:
+                    driver.execute_script('arguments[0].click();', login_trigger)
+                    break
+            except Exception:
+                time.sleep(1)
+        if not login_trigger:
+            raise Exception("Login link element not found on landing page.")
         time.sleep(1)
         
         # 2. Fill credentials & submit
