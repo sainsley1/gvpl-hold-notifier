@@ -1,9 +1,9 @@
 [Unit]
-Description=Run GVPL Library Holds Notifier every 2 hours
+Description=Run GVPL Library Holds Notifier every 30 minutes
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=2h
+OnBootSec=2min
+OnUnitActiveSec=30min
 Persistent=true
 
 [Install]

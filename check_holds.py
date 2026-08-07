@@ -4,8 +4,8 @@ GVPL (Greater Victoria Public Library) Hold Notifier
 ---------------------------------------------------
 Automated library hold checker for SirsiDynix Enterprise (gvpl.ca).
 Bypasses Cloudflare WAF / JS verification using headless browser automation,
-parses patron hold statuses, and dispatches notifications via Desktop (notify-send),
-Twilio WhatsApp, and CallMeBot.
+parses patron hold statuses from config file credentials, and dispatches
+notifications via Desktop (notify-send) and Twilio WhatsApp.
 """
 
 import os
@@ -35,12 +35,29 @@ def load_credentials(config_path):
         return json.load(f)
 
 def get_cards(creds):
-    if "cards" in creds and isinstance(creds["cards"], list):
-        return creds["cards"]
-    barcode = creds.get("barcode", "").strip()
-    pin = creds.get("pin", "").strip()
+    cards = creds.get("cards", [])
+    valid_cards = []
+    if isinstance(cards, list) and len(cards) > 0:
+        for idx, c in enumerate(cards):
+            if isinstance(c, dict):
+                barcode = str(c.get("barcode", "")).strip()
+                pin = str(c.get("pin", "")).strip()
+                name = str(c.get("name", "")).strip()
+                if barcode and pin:
+                    valid_cards.append({
+                        "name": name if name else f"Card {idx + 1}",
+                        "barcode": barcode,
+                        "pin": pin
+                    })
+        return valid_cards
+
+    # Single card format support from config
+    barcode = str(creds.get("barcode", "")).strip()
+    pin = str(creds.get("pin", "")).strip()
+    name = str(creds.get("name", "")).strip()
     if barcode and pin:
-        return [{"name": creds.get("name", "Patron"), "barcode": barcode, "pin": pin}]
+        return [{"name": name if name else "Account", "barcode": barcode, "pin": pin}]
+        
     return []
 
 def load_previous_state(state_path):
@@ -64,24 +81,6 @@ def notify_desktop(title, message):
         print("Desktop notification dispatched.")
     except Exception as e:
         print(f"Desktop notification failed: {e}")
-
-def notify_whatsapp_callmebot(phone, apikey, message):
-    if not phone or not apikey:
-        return
-    try:
-        import urllib.parse
-        import urllib.request
-        url = "https://api.callmebot.com/whatsapp.php?" + urllib.parse.urlencode({
-            "phone": phone,
-            "text": message,
-            "apikey": apikey
-        })
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            if response.status == 200:
-                print("CallMeBot WhatsApp notification sent successfully.")
-    except Exception as e:
-        print(f"CallMeBot WhatsApp notification failed: {e}")
 
 def notify_twilio_whatsapp(sid, auth_token, from_num, to_num, message):
     if not (sid and auth_token and from_num and to_num):
@@ -115,7 +114,7 @@ def notify_twilio_whatsapp(sid, auth_token, from_num, to_num, message):
         print(f"Twilio WhatsApp notification to {to_num} failed: {e}")
 
 def send_whatsapp_notifications(creds, message):
-    # Twilio WhatsApp
+    # Twilio WhatsApp only
     sid = str(creds.get("twilio_account_sid", "")).strip()
     auth_token = str(creds.get("twilio_auth_token", "")).strip()
     from_num = str(creds.get("twilio_from_number", "")).strip()
@@ -130,13 +129,6 @@ def send_whatsapp_notifications(creds, message):
     if sid and auth_token and from_num and to_numbers:
         for to_num in to_numbers:
             notify_twilio_whatsapp(sid, auth_token, from_num, to_num, message)
-        
-    # CallMeBot WhatsApp
-    phone = str(creds.get("whatsapp_phone", "")).strip()
-    apikey = str(creds.get("whatsapp_apikey", "")).strip()
-
-    if phone and apikey:
-        notify_whatsapp_callmebot(phone, apikey, message)
 
 def check_gvpl_account(barcode, pin):
     options = Options()
@@ -289,7 +281,7 @@ def main():
     card_results = []
     
     for card in active_cards:
-        name = card.get("name", "Patron")
+        name = card.get("name", "Account")
         barcode = card["barcode"].strip()
         pin = card["pin"].strip()
         
