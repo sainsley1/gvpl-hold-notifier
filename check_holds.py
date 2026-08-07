@@ -113,22 +113,62 @@ def notify_twilio_whatsapp(sid, auth_token, from_num, to_num, message):
     except Exception as e:
         print(f"Twilio WhatsApp notification to {to_num} failed: {e}")
 
+def notify_twilio_sms(sid, auth_token, from_num, to_num, message):
+    if not (sid and auth_token and from_num and to_num):
+        return
+    try:
+        import urllib.parse
+        import urllib.request
+        import base64
+
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        clean_from = from_num.replace("whatsapp:", "").strip()
+        clean_to = to_num.replace("whatsapp:", "").strip()
+
+        data = urllib.parse.urlencode({
+            "From": clean_from,
+            "To": clean_to,
+            "Body": message
+        }).encode('utf-8')
+
+        req = urllib.request.Request(url, data=data)
+        auth_header = base64.b64encode(f"{sid}:{auth_token}".encode('utf-8')).decode('utf-8')
+        req.add_header("Authorization", f"Basic {auth_header}")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status in (200, 201):
+                print(f"Twilio SMS notification sent successfully to {clean_to}.")
+    except Exception as e:
+        print(f"Twilio SMS notification to {clean_to} failed: {e}")
+
+def get_to_numbers(creds):
+    to_val = creds.get("twilio_to_number", creds.get("twilio_to_numbers", []))
+    if isinstance(to_val, list):
+        return [str(n).strip() for n in to_val if str(n).strip()]
+    elif isinstance(to_val, str) and to_val.strip():
+        return [n.strip() for n in to_val.split(",") if n.strip()]
+    return []
+
 def send_whatsapp_notifications(creds, message):
-    # Twilio WhatsApp only
     sid = str(creds.get("twilio_account_sid", "")).strip()
     auth_token = str(creds.get("twilio_auth_token", "")).strip()
-    from_num = str(creds.get("twilio_from_number", "")).strip()
-
-    to_val = creds.get("twilio_to_number", creds.get("twilio_to_numbers", []))
-    to_numbers = []
-    if isinstance(to_val, list):
-        to_numbers = [str(n).strip() for n in to_val if str(n).strip()]
-    elif isinstance(to_val, str) and to_val.strip():
-        to_numbers = [n.strip() for n in to_val.split(",") if n.strip()]
+    from_num = str(creds.get("twilio_whatsapp_from", creds.get("twilio_from_number", ""))).strip()
+    to_numbers = get_to_numbers(creds)
 
     if sid and auth_token and from_num and to_numbers:
         for to_num in to_numbers:
             notify_twilio_whatsapp(sid, auth_token, from_num, to_num, message)
+
+def send_sms_notifications(creds, message):
+    sid = str(creds.get("twilio_account_sid", "")).strip()
+    auth_token = str(creds.get("twilio_auth_token", "")).strip()
+    from_num = str(creds.get("twilio_from_number", "")).strip()
+    to_numbers = get_to_numbers(creds)
+
+    if sid and auth_token and from_num and to_numbers:
+        for to_num in to_numbers:
+            notify_twilio_sms(sid, auth_token, from_num, to_num, message)
 
 def check_gvpl_account(barcode, pin):
     options = Options()
@@ -361,8 +401,17 @@ def main():
 
         notification_body = "\n".join(report_lines).strip()
         
-        notify_desktop("📚 GVPL Library Holds Update", notification_body)
-        send_whatsapp_notifications(creds, notification_body)
+        channels = creds.get("channels", None)
+        if channels is not None:
+            if "desktop" in channels:
+                notify_desktop("📚 GVPL Library Holds Update", notification_body)
+            if "whatsapp" in channels:
+                send_whatsapp_notifications(creds, notification_body)
+            if "sms" in channels:
+                send_sms_notifications(creds, notification_body)
+        else:
+            notify_desktop("📚 GVPL Library Holds Update", notification_body)
+            send_whatsapp_notifications(creds, notification_body)
         
     if not args.dry_run:
         save_current_state(args.state, current_state)
