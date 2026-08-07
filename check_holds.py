@@ -204,18 +204,23 @@ def check_gvpl_account(barcode, pin):
         submit_btn = driver.find_element(By.ID, 'submit_0')
         driver.execute_script('arguments[0].click();', submit_btn)
         
-        # 3. Wait for post-login redirect to My Account page
-        for _ in range(15):
-            time.sleep(1)
-            if "Log Out" in driver.page_source or "account" in driver.current_url.lower():
-                break
+        # 3. Wait for post-login redirect & navigate to My Account page
+        time.sleep(3)
+        if "account" not in driver.current_url.lower():
+            try:
+                account_link = driver.find_element(By.XPATH, "//a[contains(@href, 'account') or contains(text(), 'My Account')]")
+                if account_link:
+                    driver.execute_script('arguments[0].click();', account_link)
+                    time.sleep(3)
+            except Exception:
+                pass
                 
         # 4. Click Holds tab & get expected holds count
         holds_tab = None
         expected_count = -1
         for _ in range(15):
             try:
-                holds_tab = driver.find_element(By.XPATH, "//a[@href='#holdsTab'] | //a[contains(@aria-controls, 'holdsTab')]")
+                holds_tab = driver.find_element(By.XPATH, "//a[@href='#holdsTab'] | //a[contains(@aria-controls, 'holdsTab')] | //a[contains(@id, 'summaryHolds')]")
                 if holds_tab:
                     tab_text = holds_tab.text
                     match = re.search(r'Holds\s*\(\s*(\d+)\s*\)', tab_text, re.IGNORECASE)
@@ -232,51 +237,50 @@ def check_gvpl_account(barcode, pin):
         
         # 5. Wait for hold table rows to populate in live DOM
         rows = []
-        for attempt in range(25):
+        for attempt in range(15):
             time.sleep(1)
-            if expected_count > 0 and attempt > 0 and attempt % 5 == 0 and holds_tab:
-                try:
-                    driver.execute_script('arguments[0].click();', holds_tab)
-                except Exception:
-                    pass
-                    
-            table_rows = driver.find_elements(By.XPATH, "//div[@id='holdsTab']//table//tr[td] | //table//tr[td]")
+            holds_tables = driver.find_elements(By.XPATH, "//table[contains(@id, 'holds') or contains(@class, 'holdsList')]")
+            if not holds_tables:
+                holds_tables = driver.find_elements(By.XPATH, "//div[@id='holdsTab']//table")
+            
             valid_rows = []
-            for r in table_rows:
-                cells = r.find_elements(By.TAG_NAME, "td")
-                if len(cells) >= 4:
-                    title_raw = cells[1].text.strip()
-                    # Filter out header rows and personal info summary rows
-                    if title_raw and "Title / Format" not in title_raw and not title_raw.isdigit() and len(title_raw) > 5:
-                        valid_rows.append(r)
-                        
+            if holds_tables:
+                table_rows = holds_tables[0].find_elements(By.TAG_NAME, "tr")
+                for r in table_rows:
+                    cells = r.find_elements(By.TAG_NAME, "td")
+                    if len(cells) >= 3:
+                        t_text = (cells[2].text.strip() if len(cells) > 2 else "") or cells[1].text.strip()
+                        if t_text and not any(ign in t_text.lower() for ign in ["title", "library board", "contact us", "media releases", "all content"]):
+                            if not t_text.isdigit() and len(t_text) > 3:
+                                valid_rows.append(r)
+            
             if len(valid_rows) >= max(1, expected_count):
                 rows = valid_rows
                 break
-            elif len(valid_rows) > 0 and expected_count == 0:
+            elif expected_count == 0:
+                rows = []
+                break
+            elif len(valid_rows) > 0 and attempt >= 10:
                 rows = valid_rows
                 break
-            elif len(valid_rows) > 0 and attempt >= 20:
-                rows = valid_rows
 
         for row in rows:
             cells = row.find_elements(By.TAG_NAME, "td")
-            if len(cells) >= 4:
-                title_raw = cells[1].text.strip()
-                status_raw = cells[2].text.strip()
-                pickup_raw = cells[3].text.strip()
+            if len(cells) >= 3:
+                title_raw = (cells[2].text.strip() if len(cells) > 2 else "") or cells[1].text.strip()
+                status_raw = cells[3].text.strip() if len(cells) > 3 else cells[2].text.strip()
+                pickup_raw = cells[4].text.strip() if len(cells) > 4 else ""
                 
-                if not title_raw or "Title / Format" in title_raw:
+                if not title_raw or any(ign in title_raw.lower() for ign in ["title", "library board", "contact us", "media releases"]):
                     continue
                     
                 total_holds_count += 1
                 
-                # Take main title line (strip format like Book / eAudiobook)
-                title = title_raw.split('\n')[0].strip()
+                title = title_raw.split('|')[0].split('\n')[0].strip()
                 entry = f"{title} ({pickup_raw})" if pickup_raw else title
                 
                 s_lower = status_raw.lower()
-                if any(kw in s_lower for kw in ['being held', 'held', 'ready', 'pick up']):
+                if any(kw in s_lower for kw in ['pickup', 'pick up', 'ready', 'held', 'being held']):
                     ready_holds.append(entry)
                 elif 'transit' in s_lower:
                     in_transit_holds.append(entry)
