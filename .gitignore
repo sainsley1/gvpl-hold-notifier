@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Local config & state files containing private credentials
+credentials.json
+holds_state.json
+*.log

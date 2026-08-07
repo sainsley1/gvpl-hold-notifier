@@ -1,0 +1,13 @@
+[Unit]
+Description=GVPL Library Holds Notifier Service
+After=network.target network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/seth/projects/gvpl-hold-notifier/check_holds.py
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
