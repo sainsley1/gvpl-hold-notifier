@@ -335,9 +335,9 @@ def main():
         card_prev = prev_state.get(name, {})
         prev_total = card_prev.get("total", 0)
         
-        # Safeguard: If current fetch returned fewer holds than previously recorded, preserve previous valid state
-        if prev_total > 1 and data["total"] < prev_total:
-            print(f"Warning: Fetching holds for {name} returned {data['total']} items (expected {prev_total}); preserving previous valid state.")
+        # Safeguard: Only preserve previous state if scraped holds count is 0 when previous total was > 3 (e.g. transient page load failure)
+        if data["total"] == 0 and prev_total > 3:
+            print(f"Warning: Scraped 0 holds for {name} (expected ~{prev_total}); preserving previous valid state.")
             data = card_prev
 
         current_state[name] = data
